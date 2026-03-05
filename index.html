@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TROCA DE TURNO v6.2</title>
+  <title>TROCA DE TURNO v6.3</title>
   <link rel="icon" href="turno.png" type="image/png">
   <script src="usuarios.js"></script>
   <script src="horarios.js"></script>
@@ -536,7 +536,7 @@
   
   <div class="container" id="main-container">
     <h2 style="text-align: center; color: #1a73e8; margin: 5px 0; font-size: 20px;">🔄 RELATÓRIO DE TROCA DE TURNO</h2>
-    <p style="text-align: center; color: #666; margin: 0 0 10px 0; font-size: 11px;">(Versão 6.2)</p>
+    <p style="text-align: center; color: #666; margin: 0 0 10px 0; font-size: 11px;">(Versão 6.3)</p>
     
     <div id="sessao-info" class="sessao-info" style="display: none;"><strong>📍 Sessão Atual:</strong> <span id="sessao-operador-info"></span></div>
     
@@ -759,21 +759,21 @@
     <!-- EQUIPES ATIVAS -->
     <div class="section section-equipes" id="section-equipes">
       <div class="section-header" onclick="toggleSection(this)" data-tooltip="Clique para ocultar/mostrar"><span>🚗 EQUIPES ATIVAS (<span id="equipes-count">0</span>)</span><span class="section-toggle">▼</span></div>
-      <div style="text-align: center; margin-top: 8px;">
+      <div class="section-content">
+        <div style="text-align: center; margin-bottom: 8px;">
           <button class="btn-acao btn-adicionar" onclick="adicionarEquipe()" data-tooltip="Adicionar nova equipe">➕ Adicionar</button>
           <button class="btn-acao btn-limpar" onclick="removerUltimaEquipe()" data-tooltip="Remover última equipe">➖ Remover</button>
         </div>
-      <div class="section-content">
         <!-- CABEÇALHO DAS COLUNAS -->
         <div class="equipe-header">
           <span class="hd-lead">Lead</span>
+          <span class="hd-horario">Hor. Entrada</span>
           <span class="hd-nome">Nome</span>
           <span class="hd-tel">Telefone</span>
           <span class="hd-local">Localidade 1</span>
           <span class="hd-local">Localidade 2</span>
           <span class="hd-local">Localidade 3</span>
           <span class="hd-local">Localidade 4</span>
-          <span class="hd-horario">Hor. Entrada</span>
         </div>
         <div id="equipes-container"></div>
       </div>
@@ -996,7 +996,8 @@
           <span style="font-size:11px; color:#666;">Clique na mensagem para navegar</span>
           <div>
             <button class="btn-acao btn-copiar" onclick="copiarMensagem()" data-tooltip="Copiar mensagem">📋 COPIAR</button>
-            <button id="btn-formato-equipe" class="btn-acao btn-modo" onclick="toggleFormatoEquipe()" data-tooltip="Alternar formato das equipes" style="font-size:11px; padding:6px 12px; background:#2e7d32;">📋 2 LINHAS: OFF</button>
+            <button id="btn-formato-equipe" class="btn-acao btn-modo" onclick="toggleFormatoEquipe()" data-tooltip="Alternar formato das equipes" style="font-size:11px; padding:6px 12px; background:#2e7d32;">ATIVAR QUEBRAS EQUIPES</button>
+            <button id="btn-quebra-pendencias" class="btn-acao btn-modo" onclick="toggleQuebraPendencias()" data-tooltip="Quebra de linha entre pendências" style="font-size:11px; padding:6px 12px; background:#607d8b;">COMPACTAR PENDÊNCIAS</button>
             <button class="btn-acao btn-modo" onclick="toggleModoNoturno()" data-tooltip="Alternar tema">🌙 Noturno</button>
           </div>
         </div>
@@ -1117,6 +1118,7 @@ let estados = {}, modoNoturno = false, sessaoImportada = false, dadosImportados 
 let detalhesPendentes = {}, itemAtualDetalhe = null, configCores = {};
 let areaSelecionada = '', navegacaoAtiva = true;
 let formatoEquipeCompacto = false;
+let quebraPendencias = true; // padrão: com quebra entre categorias
 
 // ============================================
 // POPUP LGPD
@@ -1716,7 +1718,34 @@ function formatTime(s) { let h = Math.floor(s / 3600), m = Math.floor((s % 3600)
 function formatTimeShort(s) { let h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60; return (h > 0 ? h + 'h ' : '') + m.toString().padStart(2, '0') + 'm ' + ss.toString().padStart(2, '0') + 's'; }
 function formatFullDateTime(d) { const m = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"]; return `${d.getDate()} de ${m[d.getMonth()]} de ${d.getFullYear()} às ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`; }
 function formatarOperador(i) { i.value = i.value.replace(/[^a-zA-ZÀ-ÿ\s]/g, '').toUpperCase(); if (i.value.trim()) { i.classList.remove('campo-obrigatorio-import'); verificarImportacao(); } }
-function aplicarMascaraLead(i) { let v = i.value.toUpperCase().replace(/[^A-Z0-9]/g, ''), r = ''; for (let x = 0; x < v.length && x < 9; x++) { if (x === 3 || x === 5) r += '-'; r += v[x]; } i.value = r; }
+function aplicarMascaraLead(i) {
+  // Formato: DFJ-RD-01B — 3 letras, hífen, 2 letras, hífen, 2 números, 1 letra (B/C/D)
+  let raw = i.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  let r = '';
+  let letras = 0, numeros = 0, pos = 0;
+
+  for (let x = 0; x < raw.length && r.replace(/-/g,'').length < 9; x++) {
+    const c = raw[x];
+    const len = r.replace(/-/g,'').length;
+
+    if (len === 3 || len === 5) r += '-';
+
+    if (len < 3) {
+      // posições 0-2: só letras
+      if (/[A-Z]/.test(c)) r += c;
+    } else if (len < 5) {
+      // posições 3-4: só letras
+      if (/[A-Z]/.test(c)) r += c;
+    } else if (len < 7) {
+      // posições 5-6: só números
+      if (/[0-9]/.test(c)) r += c;
+    } else if (len === 7) {
+      // posição 7: só B, C ou D
+      if (/[BCD]/.test(c)) r += c;
+    }
+  }
+  i.value = r;
+}
 
 function formatarTelefone(i) { 
   let v = i.value.replace(/\D/g, ''); 
@@ -1755,15 +1784,28 @@ function onCampoAlterado() {
 
 function toggleModoNoturno() { modoNoturno = !modoNoturno; document.getElementById('previewBox').classList.toggle('modo-noturno', modoNoturno); }
 
+function toggleQuebraPendencias() {
+  quebraPendencias = !quebraPendencias;
+  const btn = document.getElementById('btn-quebra-pendencias');
+  if (quebraPendencias) {
+    btn.textContent = 'COMPACTAR PENDÊNCIAS';
+    btn.style.background = '#607d8b'; // neutro = com quebra ativa
+  } else {
+    btn.textContent = 'GERAR QUEBRA PENDÊNCIAS';
+    btn.style.background = '#607d8b'; // neutro = sem quebra
+  }
+  atualizarPreview();
+}
+
 function toggleFormatoEquipe() {
   formatoEquipeCompacto = !formatoEquipeCompacto;
   const btn = document.getElementById('btn-formato-equipe');
   if (formatoEquipeCompacto) {
-    btn.textContent = '📋 2 LINHAS: ON';
-    btn.style.background = '#795548';
+    btn.textContent = 'DESATIVAR QUEBRAS EQUIPES';
+    btn.style.background = '#f44336'; // vermelho = clique para desativar
   } else {
-    btn.textContent = '📋 2 LINHAS: OFF';
-    btn.style.background = '#2e7d32';
+    btn.textContent = 'ATIVAR QUEBRAS EQUIPES';
+    btn.style.background = '#2e7d32'; // verde = clique para ativar
   }
   atualizarPreview();
 }
@@ -2288,6 +2330,10 @@ function adicionarEquipe() {
        maxlength="10"
        oninput="aplicarMascaraLead(this)"
        onchange="onCampoAlterado(); atualizarDropdownsEquipes();">
+    <select class="horario-select" id="equipe-${equipeCount}-horario" onchange="onCampoAlterado()">
+      <option value="">--:--</option>
+      ${horariosOptions}
+    </select>
     <input type="text" class="nome-input" id="equipe-${equipeCount}-nome" placeholder="Nome" oninput="this.value = this.value.toUpperCase();" onchange="onCampoAlterado()">
     <input type="tel" class="tel-input" id="equipe-${equipeCount}-telefone" placeholder="85 00000-0000" maxlength="13" oninput="formatarTelefone(this)" onchange="onCampoAlterado()">
     <div class="autocomplete-wrapper">
@@ -2306,10 +2352,6 @@ function adicionarEquipe() {
       <input type="text" class="local-input" id="equipe-${equipeCount}-local4" placeholder="Local 4" onclick="toggleLocalDropdown('equipe-${equipeCount}-local4', 'dropdown-${equipeCount}-4')" oninput="filtrarLocal('equipe-${equipeCount}-local4', 'dropdown-${equipeCount}-4')" autocomplete="off">
       <div class="autocomplete-dropdown" id="dropdown-${equipeCount}-4"></div>
     </div>
-    <select class="horario-select" id="equipe-${equipeCount}-horario" onchange="onCampoAlterado()">
-      <option value="">--:--</option>
-      ${horariosOptions}
-    </select>
     <button class="equipe-remove" onclick="removerEquipe(${equipeCount})">✕</button>
   `;
   c.appendChild(d);
@@ -2335,6 +2377,11 @@ function adicionarEquipeComDados(dados) {
            maxlength="10"
            oninput="aplicarMascaraLead(this)"
            onchange="onCampoAlterado(); atualizarDropdownsEquipes();">
+
+    <select class="horario-select" id="equipe-${equipeCount}-horario" onchange="onCampoAlterado()">
+      <option value="">--:--</option>
+      ${horariosOptions}
+    </select>
     
     <input type="text"
            class="nome-input"
@@ -2392,11 +2439,6 @@ function adicionarEquipeComDados(dados) {
              autocomplete="off">
       <div class="autocomplete-dropdown" id="dropdown-${equipeCount}-4"></div>
     </div>
-
-    <select class="horario-select" id="equipe-${equipeCount}-horario" onchange="onCampoAlterado()">
-      <option value="">--:--</option>
-      ${horariosOptions}
-    </select>
 
     <button class="equipe-remove" onclick="removerEquipe(${equipeCount})">✕</button>
   `;
@@ -2824,14 +2866,16 @@ function gerarMensagem(validar = true) {
       msg += `---- *TURNO ${turno} (${equipesTurno.length})* ----\n`;
       equipesTurno.forEach(e => {
         const ls = [e.local1, e.local2, e.local3, e.local4].filter(l => l);
-        const saida = e.horario ? calcularHorarioSaida(e.horario, 9.8) : null;
+        const turnoLetra = e.lead ? e.lead.slice(-1).toUpperCase() : '';
+        const carga = turnoLetra === 'D' ? 8.8 : 9.8;
+        const saida = e.horario ? calcularHorarioSaida(e.horario, carga) : null;
         const saidaStr = saida ? `SAÍDA ${saida}` : '';
 
         if (formatoEquipeCompacto) {
           // FORMATO 2 LINHAS (botão ON)
           let linha1 = e.lead;
+          if (saidaStr) linha1 += ` | ${saidaStr}`;
           const partesLoc = [...ls];
-          if (saidaStr) partesLoc.push(saidaStr);
           if (partesLoc.length > 0) linha1 += ` - ${partesLoc.join(' | ')}`;
           msg += linha1 + '\n';
           if (e.nome || e.telefone) {
@@ -2844,12 +2888,12 @@ function gerarMensagem(validar = true) {
         } else {
           // FORMATO 1 LINHA (padrão OFF)
           let partes = [e.lead];
+          if (saidaStr) partes.push(saidaStr);
           let info = '';
           if (e.nome) info += `(${e.nome})`;
           if (e.telefone) info += (info ? ' ' : '') + `+55 ${e.telefone}`;
           if (info) partes.push(info);
           ls.forEach(l => partes.push(l));
-          if (saidaStr) partes.push(saidaStr);
           msg += partes.join(' | ') + '\n';
         }
       });
@@ -2892,6 +2936,7 @@ function gerarMensagem(validar = true) {
         const nome = titleEl ? titleEl.textContent.toUpperCase() : id.toUpperCase();
         pn += `• ${nome}: (${pendentesCount})\n`;
         pn += pendentesTexto;
+        if (quebraPendencias) pn += '\n'; // quebra entre categorias
       }
     }
   });
